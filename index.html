@@ -2181,7 +2181,9 @@
 
         // 初始化
         initLayers();
-        syncDkSwitches();
+        rebuildLayer('zy');
+        rebuildLayer('dk');
+        ensureDkLayer();
         updateStats();
         renderList();
         
