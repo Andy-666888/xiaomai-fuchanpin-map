@@ -324,14 +324,12 @@ function updateVisibility(){
   availableData.forEach(function(a,i){
     var m=availMarkers[i];if(!m)return;
     if(!showAvail){m.remove();return;}
-    if(filterCJ){if(norm(a.factory)===norm(filterCJ))m.addTo(map);else m.remove();}
-    else m.addTo(map);
+    m.addTo(map);
   });
   watchingData.forEach(function(w,i){
     var m=watchMarkers[i];if(!m)return;
     if(!showWatch){m.remove();return;}
-    if(filterCJ){if(norm(w.factory)===norm(filterCJ))m.addTo(map);else m.remove();}
-    else m.addTo(map);
+    m.addTo(map);
   });
 }
 
@@ -339,18 +337,18 @@ function countVisible(){
   var fc=0,cc=0,ac=0,wc=0;
   cjFactories.forEach(function(f){if(showCJ&&(!filterCJ||f.name===filterCJ||norm(f.name)===norm(filterCJ)))fc++;});
   competitors.forEach(function(c){if(showComp&&(!filterCJ||norm(c.factory)===norm(filterCJ)))cc++;});
-  availableData.forEach(function(a){if(showAvail&&(!filterCJ||norm(a.factory)===norm(filterCJ)))ac++;});
-  watchingData.forEach(function(w){if(showWatch&&(!filterCJ||norm(w.factory)===norm(filterCJ)))wc++;});
+  availableData.forEach(function(a){if(showAvail)ac++;});
+  watchingData.forEach(function(w){if(showWatch)wc++;});
   return{fc:fc,cc:cc,ac:ac,wc:wc};
 }
 
 function updateStats(){
   var c=countVisible();
   document.getElementById('lpStats').innerHTML=
-    '<div class="s fac">嘉吉工厂: <span>'+c.fc+'</span>/27</div>'+
-    '<div class="s comp">竞争厂家: <span>'+c.cc+'</span>/193</div>'+
+    '<div class="s fac">嘉吉工厂: <span>'+c.fc+'</span>/28</div>'+
+    '<div class="s comp">竞争厂家: <span>'+c.cc+'</span>/72</div>'+
     '<div class="s avail">可用: <span>'+c.ac+'</span>/133</div>'+
-    '<div class="s watch">关注: <span>'+c.wc+'</span>/42</div>';
+    '<div class="s watch">关注: <span>'+c.wc+'</span>/46</div>';
 }
 
 function updateAll(){updateVisibility();buildLeftPanel();buildRightPanel();updateStats();}
@@ -400,7 +398,7 @@ function buildRightPanel(){
   });
   html+='</div></div>';
 
-  var availList=filterCJ?availableData.filter(function(a){return norm(a.factory)===norm(filterCJ);}):availableData;
+  var availList=availableData;
   html+='<div class="rp-section"><div class="rp-sec-title" onclick="toggleSec(this)"><span class="arrow open">▶</span><span style="color:#43a047">●</span> 可用 <span class="count">('+availList.length+')</span></div><div class="rp-list open">';
   availList.forEach(function(a){
     var idx=availableData.indexOf(a);
@@ -411,7 +409,7 @@ function buildRightPanel(){
   });
   html+='</div></div>';
 
-  var watchList=filterCJ?watchingData.filter(function(w){return norm(w.factory)===norm(filterCJ);}):watchingData;
+  var watchList=watchingData;
   html+='<div class="rp-section"><div class="rp-sec-title" onclick="toggleSec(this)"><span class="arrow open">▶</span><span style="color:#42a5f5">●</span> 关注 <span class="count">('+watchList.length+')</span></div><div class="rp-list open">';
   watchList.forEach(function(w){
     var idx=watchingData.indexOf(w);
