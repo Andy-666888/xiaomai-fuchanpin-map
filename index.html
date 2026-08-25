@@ -121,8 +121,9 @@
             margin-top: 4px;
             flex-shrink: 0;
         }
-        .factory-item .item-dot.zy { background: #52c41a; }
-        .factory-item .item-dot.dk { background: #5bc0de; }
+        .factory-item .item-dot.zy { background: #fa8c16; }
+        .factory-item .item-dot.ky { background: #52c41a; }
+        .factory-item .item-dot.gz { background: #1890ff; }
         .factory-item .item-info { flex: 1; min-width: 0; }
         .factory-item .item-name {
             font-size: 12px;
@@ -143,8 +144,9 @@
             margin-left: 8px;
             margin-top: 2px;
         }
-        .item-type.zy { background: #f6ffed; color: #389e0d; }
-        .item-type.dk { background: #e6f7ff; color: #096dd9; }
+        .item-type.zy { background: #fff7e6; color: #d46b08; }
+        .item-type.ky { background: #f6ffed; color: #389e0d; }
+        .item-type.gz { background: #e6f7ff; color: #096dd9; }
         
         .empty-state {
             text-align: center;
@@ -950,16 +952,38 @@
             layers.dk.addTo(map);
         }
         
+        // 模糊匹配嘉吉工厂
+        function fuzzyMatchJG(kw) {
+            if (!kw || kw.length < 2) return null;
+            var k = normJG(kw);
+            var matches = [];
+            dataJG.forEach(function(d) {
+                if (normJG(d.name).indexOf(k) >= 0) matches.push(d.name);
+            });
+            return matches.length > 0 ? matches : null;
+        }
+
         // 获取可见工厂
         function getVisible() {
             var res = { zy: {}, dk: {} };
-            var kw = searchKw.toLowerCase();
-            
+            var kw = searchKw.toLowerCase().trim();
+            var jgMatches = fuzzyMatchJG(kw);
+
             if (showZY) {
                 dataZY.forEach(function(d) {
                     if (!activeMaterials.has(d.material)) return;
+                    // 优先使用下拉精确筛选
                     if (selectedJG && normJG(d.factory) !== normJG(selectedJG)) return;
-                    if (kw && d.name.toLowerCase().indexOf(kw) < 0) return;
+                    // 模糊匹配到嘉吉时，竞争厂家只显示匹配嘉吉关联的
+                    if (!selectedJG && jgMatches) {
+                        var found = false;
+                        for (var i = 0; i < jgMatches.length; i++) {
+                            if (normJG(d.factory) === normJG(jgMatches[i])) { found = true; break; }
+                        }
+                        if (!found) return;
+                    }
+                    // 普通关键字搜索（非嘉吉匹配时对名称过滤）
+                    if (kw && !jgMatches && d.name.toLowerCase().indexOf(kw) < 0) return;
                     if (!res.zy[d.material]) res.zy[d.material] = [];
                     res.zy[d.material].push(d);
                 });
@@ -967,7 +991,10 @@
             if (showDK) {
                 dataDK.forEach(function(d) {
                     if (!activeMaterials.has(d.material)) return;
-                    if (kw && d.name.toLowerCase().indexOf(kw) < 0) return;
+                    // 模糊匹配到嘉吉或下拉选中嘉吉时，可用/关注全部显示（不过滤名称）
+                    if (jgMatches || selectedJG) {
+                        // 全部显示
+                    } else if (kw && d.name.toLowerCase().indexOf(kw) < 0) return;
                     if (!res.dk[d.material]) res.dk[d.material] = [];
                     res.dk[d.material].push(d);
                 });
@@ -1005,19 +1032,22 @@
                         html += '<div class="factory-item" onclick="locateFactory(' + d.lat + ',' + d.lng + ',\'zy\',\'' + d.name.replace(/'/g, "\\'") + '\')">';
                         html += '<div class="item-dot zy"></div>';
                         html += '<div class="item-info"><div class="item-name">' + d.name + '</div>';
-                        if (d.note) html += '<div class="item-note">' + d.note + '</div>';
+                        if (d.factory) html += '<div class="item-note">关联: ' + d.factory + '</div>';
+                        else if (d.note) html += '<div class="item-note">' + d.note + '</div>';
                         html += '</div>';
-                        html += '<span class="item-type zy">在用</span>';
+                        html += '<span class="item-type zy">竞争</span>';
                         html += '</div>';
                     });
                     
                     dkList.forEach(function(d) {
                         html += '<div class="factory-item" onclick="locateFactory(' + d.lat + ',' + d.lng + ',\'dk\',\'' + d.name.replace(/'/g, "\\'") + '\')">';
-                        html += '<div class="item-dot dk"></div>';
+                        var dotCls = d.material === '关注' ? 'gz' : 'ky';
+                        var typeLabel = d.material === '关注' ? '关注' : '可用';
+                        html += '<div class="item-dot ' + dotCls + '"></div>';
                         html += '<div class="item-info"><div class="item-name">' + d.name + '</div>';
                         if (d.note) html += '<div class="item-note">' + d.note + '</div>';
                         html += '</div>';
-                        html += '<span class="item-type dk">待开发</span>';
+                        html += '<span class="item-type ' + dotCls + '">' + typeLabel + '</span>';
                         html += '</div>';
                     });
                     
@@ -1053,6 +1083,9 @@
         // 搜索
         function onSearch(v) {
             searchKw = v.trim();
+            rebuildLayer('zy');
+            rebuildLayer('dk');
+            updateStats();
             renderList();
         }
         
@@ -1123,10 +1156,24 @@
             if (!show) { document.getElementById('count-' + type).textContent = '0'; return; }
             
             var cnt = 0, cntKy = 0, cntGz = 0;
+            var jgMatches = type === 'zy' ? fuzzyMatchJG(searchKw) : null;
             arr.forEach(function(d) {
                 if (!activeMaterials.has(d.material)) return;
-                // 竞争厂家(zy)：选了嘉吉时只显示该嘉吉对应的；可用/关注(dk)始终显示
-                if (type === 'zy' && selectedJG && normJG(d.factory) !== normJG(selectedJG)) return;
+                if (type === 'zy') {
+                    // 下拉精确筛选优先
+                    if (selectedJG && normJG(d.factory) !== normJG(selectedJG)) return;
+                    // 模糊匹配到嘉吉时只显示关联竞争厂家
+                    if (!selectedJG && jgMatches) {
+                        var found = false;
+                        for (var i = 0; i < jgMatches.length; i++) {
+                            if (normJG(d.factory) === normJG(jgMatches[i])) { found = true; break; }
+                        }
+                        if (!found) return;
+                    }
+                    // 普通搜索（非嘉吉匹配）时对名称过滤
+                    var kw = searchKw.toLowerCase().trim();
+                    if (kw && !jgMatches && !selectedJG && d.name.toLowerCase().indexOf(kw) < 0) return;
+                }
                 var m = createMarker(d, type, iconFn, popupFn);
                 layers[type].addLayer(m);
                 allMarkers[type].push(m);
@@ -1146,7 +1193,17 @@
         function updateStats() {
             var n = 0;
             if (showJG) n += allMarkers.jg.length;
-            if (showZY) dataZY.forEach(function(d) { if (activeMaterials.has(d.material) && (!selectedJG || normJG(d.factory)===normJG(selectedJG))) n++; });
+            var jgMatches = fuzzyMatchJG(searchKw);
+            if (showZY) dataZY.forEach(function(d) {
+                if (!activeMaterials.has(d.material)) return;
+                if (selectedJG && normJG(d.factory)!==normJG(selectedJG)) return;
+                if (!selectedJG && jgMatches) {
+                    var found=false;
+                    for (var i=0;i<jgMatches.length;i++){ if(normJG(d.factory)===normJG(jgMatches[i])){found=true;break;} }
+                    if(!found) return;
+                }
+                n++;
+            });
             if (showDK) dataDK.forEach(function(d) { if (activeMaterials.has(d.material)) n++; });
             document.getElementById('visible-count').textContent = n;
         }
