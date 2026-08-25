@@ -208,9 +208,19 @@
         }
         .toggle-icon.star { color: #e74c3c; font-size: 20px; }
         .toggle-icon.circle { 
+            width: 12px; height: 12px; background: #fa8c16; 
+            border-radius: 50%; border: 2px solid white;
+            box-shadow: 0 0 0 1px #fa8c16;
+        }
+        .toggle-icon.circle-green { 
             width: 12px; height: 12px; background: #52c41a; 
             border-radius: 50%; border: 2px solid white;
             box-shadow: 0 0 0 1px #52c41a;
+        }
+        .toggle-icon.circle-blue { 
+            width: 12px; height: 12px; background: #1890ff; 
+            border-radius: 50%; border: 2px solid white;
+            box-shadow: 0 0 0 1px #1890ff;
         }
         .toggle-icon.triangle {
             width: 0; height: 0;
@@ -296,7 +306,19 @@
         }
         .legend-circle {
             width: 18px; height: 18px;
+            background: #fa8c16; border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        .legend-circle-green {
+            width: 18px; height: 18px;
             background: #52c41a; border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        .legend-circle-blue {
+            width: 18px; height: 18px;
+            background: #1890ff; border-radius: 50%;
             border: 2px solid white;
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
@@ -753,20 +775,29 @@
                 <div class="toggle-icon circle"></div>
                 <div class="toggle-info">
                     <div class="toggle-name">竞争厂家</div>
-                    <div class="toggle-desc">绿色实心圆点</div>
+                    <div class="toggle-desc">橙色实心圆点</div>
                 </div>
                 <div class="toggle-switch on" id="switch-zy"></div>
                 <div class="toggle-count" id="count-zy">101</div>
             </div>
             
-            <div class="category-toggle" onclick="toggleCategory('dk')">
-                <div class="toggle-icon triangle"></div>
+            <div class="category-toggle" onclick="toggleDkMaterial('可用')">
+                <div class="toggle-icon circle-green"></div>
                 <div class="toggle-info">
-                    <div class="toggle-name">可用/关注厂家</div>
-                    <div class="toggle-desc">浅蓝色实心三角形</div>
+                    <div class="toggle-name">可用厂家</div>
+                    <div class="toggle-desc">绿色实心圆点</div>
                 </div>
                 <div class="toggle-switch on" id="switch-dk"></div>
                 <div class="toggle-count" id="count-dk">141</div>
+            </div>
+            <div class="category-toggle" onclick="toggleDkMaterial('关注')">
+                <div class="toggle-icon circle-blue"></div>
+                <div class="toggle-info">
+                    <div class="toggle-name">关注厂家</div>
+                    <div class="toggle-desc">蓝色实心圆点</div>
+                </div>
+                <div class="toggle-switch on" id="switch-gz"></div>
+                <div class="toggle-count" id="count-gz">0</div>
             </div>
             
             <div class="filter-section">
@@ -858,6 +889,15 @@
         function circleIcon() {
             return L.divIcon({ className: 'legend-marker', html: '<div class="legend-circle"></div>', iconSize: [18, 18], iconAnchor: [9, 9] });
         }
+        function circleGreenIcon() {
+            return L.divIcon({ className: 'legend-marker', html: '<div class="legend-circle-green"></div>', iconSize: [18, 18], iconAnchor: [9, 9] });
+        }
+        function circleBlueIcon() {
+            return L.divIcon({ className: 'legend-marker', html: '<div class="legend-circle-blue"></div>', iconSize: [18, 18], iconAnchor: [9, 9] });
+        }
+        function dkIcon(d) {
+            return d.material === '关注' ? circleBlueIcon() : circleGreenIcon();
+        }
         function triangleIcon() {
             return L.divIcon({ className: 'legend-marker', html: '<div class="legend-triangle"></div>', iconSize: [16, 14], iconAnchor: [8, 14] });
         }
@@ -870,7 +910,9 @@
             return '<div class="popup-content"><div class="popup-title">' + d.name + '</div><div class="popup-detail">原料: ' + d.material + '</div>' + (d.note ? '<div class="popup-detail">' + d.note + '</div>' : '') + '<span class="popup-tag tag-green">竞争厂家</span></div>';
         }
         function popupDK(d) {
-            return '<div class="popup-content"><div class="popup-title">' + d.name + '</div><div class="popup-detail">原料: ' + d.material + '</div>' + (d.note ? '<div class="popup-detail">' + d.note + '</div>' : '') + '<span class="popup-tag tag-blue">可用/关注厂家</span></div>';
+            var tagClass = d.material === '关注' ? 'tag-blue' : 'tag-green';
+            var tagText = d.material === '关注' ? '关注厂家' : '可用厂家';
+            return '<div class="popup-content"><div class="popup-title">' + d.name + '</div><div class="popup-detail">分类: ' + d.material + '</div>' + (d.note ? '<div class="popup-detail">' + d.note + '</div>' : '') + '<span class="popup-tag ' + tagClass + '">' + tagText + '</span></div>';
         }
         
         // 创建标记
@@ -901,7 +943,7 @@
             
             layers.dk = L.layerGroup();
             dataDK.forEach(function(d) {
-                var m = createMarker(d, 'dk', triangleIcon, popupDK);
+                var m = createMarker(d, 'dk', function(){ return dkIcon(d); }, popupDK);
                 allMarkers.dk.push(m);
                 layers.dk.addLayer(m);
             });
@@ -1043,14 +1085,35 @@
             else activeMaterials.add(mat);
             rebuildLayer('zy');
             rebuildLayer('dk');
+            syncDkSwitches();
             updateStats();
             renderList();
+        }
+        
+        // 可用/关注 独立开关
+        function toggleDkMaterial(mat) {
+            if (activeMaterials.has(mat)) activeMaterials.delete(mat);
+            else activeMaterials.add(mat);
+            // 同步底部原料筛选按钮
+            var btn = document.querySelector('.filter-btn[data-material="' + mat + '"]');
+            if (btn) btn.classList.toggle('active', activeMaterials.has(mat));
+            syncDkSwitches();
+            rebuildLayer('dk');
+            updateStats();
+            renderList();
+        }
+        function syncDkSwitches() {
+            var ky = activeMaterials.has('可用');
+            var gz = activeMaterials.has('关注');
+            document.getElementById('switch-dk').classList.toggle('on', ky);
+            document.getElementById('switch-gz').classList.toggle('on', gz);
+            showDK = ky || gz;
         }
         
         // 重建图层
         function rebuildLayer(type) {
             var arr = type === 'zy' ? dataZY : dataDK;
-            var iconFn = type === 'zy' ? circleIcon : triangleIcon;
+            var iconFn = type === 'zy' ? circleIcon : function(d){ return dkIcon(d); };
             var popupFn = type === 'zy' ? popupZY : popupDK;
             var show = type === 'zy' ? showZY : showDK;
             
@@ -1059,7 +1122,7 @@
             
             if (!show) { document.getElementById('count-' + type).textContent = '0'; return; }
             
-            var cnt = 0;
+            var cnt = 0, cntKy = 0, cntGz = 0;
             arr.forEach(function(d) {
                 if (!activeMaterials.has(d.material)) return;
                 // 竞争厂家(zy)：选了嘉吉时只显示该嘉吉对应的；可用/关注(dk)始终显示
@@ -1068,8 +1131,15 @@
                 layers[type].addLayer(m);
                 allMarkers[type].push(m);
                 cnt++;
+                if (d.material === '可用') cntKy++;
+                if (d.material === '关注') cntGz++;
             });
-            document.getElementById('count-' + type).textContent = cnt;
+            if (type === 'dk') {
+                document.getElementById('count-dk').textContent = cntKy;
+                document.getElementById('count-gz').textContent = cntGz;
+            } else {
+                document.getElementById('count-' + type).textContent = cnt;
+            }
         }
         
         // 统计
@@ -1686,7 +1756,7 @@
                     // DK
                     dataDK.forEach(function(d) {
                         if (activeMaterials.has(d.material)) {
-                            var m = createMarker(d, 'dk', triangleIcon, popupDK);
+                            var m = createMarker(d, 'dk', function(){ return dkIcon(d); }, popupDK);
                             allMarkers.dk.push(m);
                             layers.dk.addLayer(m);
                         }
@@ -1696,7 +1766,9 @@
                     // Update counts
                     document.getElementById('count-jg').textContent = dataJG.length;
                     document.getElementById('count-zy').textContent = dataZY.length;
-                    document.getElementById('count-dk').textContent = dataDK.length;
+                    var _ky=0,_gz=0; dataDK.forEach(function(d){ if(d.material==='可用')_ky++; if(d.material==='关注')_gz++; });
+                    document.getElementById('count-dk').textContent = _ky;
+                    document.getElementById('count-gz').textContent = _gz;
                     
                     // Update stats and list
                     updateStats();
@@ -2016,6 +2088,8 @@
         // 初始化
         initLayers();
             fillJGSelect();
+        syncDkSwitches();
+        updateStats();
         renderList();
         
         // 适配视野
