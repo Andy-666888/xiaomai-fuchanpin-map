@@ -128,6 +128,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica N
 .pin-btn:hover{opacity:1;}
 .pin-btn.pinned{opacity:1;}
 
+/* Draggable pin cards with leader line */
+#pinCardLayer{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:800;}
+#pinSvgLayer{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:799;overflow:visible;}
+.pin-card{position:absolute;background:rgba(30,30,40,0.95);color:#f0f0f0;border-radius:7px;padding:6px 22px 6px 10px;font-size:11px;font-weight:500;line-height:1.35;white-space:nowrap;box-shadow:0 3px 14px rgba(0,0,0,0.5);cursor:grab;pointer-events:auto;user-select:none;max-width:240px;overflow:hidden;text-overflow:ellipsis;border-left:3px solid #3388ff;}
+.pin-card:active{cursor:grabbing;}
+.pin-card .pc-close{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:15px;height:15px;line-height:14px;text-align:center;border-radius:50%;cursor:pointer;font-size:11px;color:#999;background:rgba(255,255,255,0.06);transition:all 0.15s;}
+.pin-card .pc-close:hover{background:rgba(255,80,80,0.4);color:#fff;}
+.pin-card.cj{border-left-color:#e53935;}
+.pin-card.comp{border-left-color:#1e88e5;}
+.pin-card.avail{border-left-color:#43a047;}
+.pin-card.watch{border-left-color:#42a5f5;}
+.pin-card.dragging{z-index:10;box-shadow:0 6px 22px rgba(0,0,0,0.6);}
+
 
 </style>
 </head>
@@ -156,6 +169,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica N
   <div class="ph"><h3>📋 详细明细</h3><button class="rp-toggle" id="rpToggleBtn">◀</button></div>
   <div class="pb" id="rpBody"></div>
 </div>
+<div id="pinCardLayer"></div>
+<svg id="pinSvgLayer"></svg>
 <div id="toolbar">
   <button id="btnImport" title="导入Excel" style="font-size:14px;font-weight:bold;">📥</button>
   <div class="sep"></div>
@@ -173,7 +188,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica N
   <div class="sep"></div>
   <button id="btnClear" title="清除绘制">🗑️</button>
   <div class="sep"></div>
-  <button id="btnTooltip" title="悬停提示: 开" style="font-size:14px;opacity:1;">💬</button>
+  <button id="btnClearPins" title="清除全部固定卡片" style="font-size:13px;">🧹</button>
 </div>
 <input type="file" id="importFileInput" accept=".xlsx,.xls" style="display:none">
 <div id="colorPicker"><div class="colors" id="presetColors"></div><div class="custom-row"><input type="color" id="customColor" value="#3388ff"><label>自定义</label></div></div>
@@ -222,21 +237,125 @@ function triIcon(){
 }
 
 var tooltipPermanent=false;
-var pinnedTooltips=new Set();
+var pinnedCards={};
+var pinZCounter=100;
+
+function _getMarkerByKey(key){
+  var parts=key.split(':');var type=parts[0];var id=parts.slice(1).join(':');
+  if(type==='cj')return cjMarkers[id];
+  if(type==='comp')return compMarkers[parseInt(id)];
+  if(type==='avail')return availMarkers[parseInt(id)];
+  if(type==='watch')return watchMarkers[parseInt(id)];
+  return null;
+}
+function _cardClassByType(t){return t==='cj'?'cj':t==='comp'?'comp':t==='avail'?'avail':'watch';}
+
+function addPinCard(key,marker){
+  if(pinnedCards[key])return;
+  var parts=key.split(':');var type=parts[0];var id=parts.slice(1).join(':');
+  var dataName=marker._tooltipText||'';
+  var latlng=marker.getLatLng();
+  var pt=map.latLngToContainerPoint(latlng);
+  var cx=pt.x+12, cy=pt.y-34;
+  var vw=map.getContainer().clientWidth, vh=map.getContainer().clientHeight;
+  cx=Math.max(8,Math.min(cx, vw-220));
+  cy=Math.max(8,Math.min(cy, vh-40));
+
+  var layer=document.getElementById('pinCardLayer');
+  var card=document.createElement('div');
+  card.className='pin-card '+_cardClassByType(type);
+  card.style.left=cx+'px';card.style.top=cy+'px';
+  card.style.zIndex=String(++pinZCounter);
+  var nameSpan=document.createElement('span');nameSpan.className='pc-name';nameSpan.textContent=dataName;
+  var closeBtn=document.createElement('span');closeBtn.className='pc-close';closeBtn.title='取消固定';closeBtn.innerHTML='&times;';
+  card.appendChild(nameSpan);card.appendChild(closeBtn);
+  layer.appendChild(card);
+
+  pinnedCards[key]={el:card,marker:marker,type:type,id:id,x:cx,y:cy,latlng:latlng};
+
+  closeBtn.addEventListener('mousedown',function(e){
+    e.stopPropagation();e.preventDefault();
+    removePinCard(key);
+    var btn=document.querySelector('.pin-btn[data-pinkey="'+key+'"]');
+    if(btn){btn.classList.remove('pinned');btn.textContent='\uD83D\uDCCC';}
+  });
+
+  var dragging=false,sx,sy,ox,oy;
+  card.addEventListener('mousedown',function(e){
+    if(e.target.classList.contains('pc-close'))return;
+    dragging=true;sx=e.clientX;sy=e.clientY;ox=cx;oy=cy;
+    card.classList.add('dragging');
+    card.style.zIndex=String(++pinZCounter);
+    e.preventDefault();e.stopPropagation();
+  });
+  window.addEventListener('mousemove',function(e){
+    if(!dragging)return;
+    cx=Math.max(0,Math.min(ox+e.clientX-sx, map.getContainer().clientWidth-30));
+    cy=Math.max(0,Math.min(oy+e.clientY-sy, map.getContainer().clientHeight-30));
+    card.style.left=cx+'px';card.style.top=cy+'px';
+    pinnedCards[key].x=cx;pinnedCards[key].y=cy;
+    redrawPinLines();
+  });
+  window.addEventListener('mouseup',function(){
+    if(dragging){dragging=false;card.classList.remove('dragging');}
+  });
+
+  redrawPinLines();
+}
+
+function removePinCard(key){
+  var pc=pinnedCards[key];if(!pc)return;
+  pc.el.remove();delete pinnedCards[key];redrawPinLines();
+}
+
+function clearAllPinCards(){
+  Object.keys(pinnedCards).forEach(function(k){
+    if(pinnedCards[k])pinnedCards[k].el.remove();
+  });
+  pinnedCards={};redrawPinLines();
+  document.querySelectorAll('.pin-btn.pinned').forEach(function(b){
+    b.classList.remove('pinned');b.textContent='\uD83D\uDCCC';
+  });
+}
+
 function togglePinTip(key,marker,btnEl){
-  var cls=marker._tipClass||'';var off=marker._tipOffset||[0,-8];
-  if(pinnedTooltips.has(key)){
-    pinnedTooltips.delete(key);
-    marker.unbindTooltip();
-    marker.bindTooltip(marker._tooltipText,{className:cls,direction:'top',offset:off});
-    if(btnEl){btnEl.classList.remove('pinned');btnEl.textContent='📌';}
+  if(pinnedCards[key]){
+    removePinCard(key);
+    if(btnEl){btnEl.classList.remove('pinned');btnEl.textContent='\uD83D\uDCCC';}
   }else{
-    pinnedTooltips.add(key);
-    marker.unbindTooltip();
-    marker.bindTooltip(marker._tooltipText,{className:cls+' tip-pinned',direction:'top',offset:off,permanent:true});
-    if(btnEl){btnEl.classList.add('pinned');btnEl.textContent='📍';}
+    addPinCard(key,marker);
+    if(btnEl){btnEl.classList.add('pinned');btnEl.textContent='\uD83D\uDCCD';}
   }
 }
+
+function redrawPinLines(){
+  var svg=document.getElementById('pinSvgLayer');
+  if(!svg)return;
+  var vw=map.getContainer().clientWidth, vh=map.getContainer().clientHeight;
+  svg.setAttribute('width',vw);svg.setAttribute('height',vh);
+  while(svg.firstChild)svg.removeChild(svg.firstChild);
+  var colors={cj:'#e53935',comp:'#1e88e5',avail:'#43a047',watch:'#42a5f5'};
+  Object.keys(pinnedCards).forEach(function(key){
+    var pc=pinnedCards[key];if(!pc)return;
+    var latlng;
+    try{latlng=pc.marker.getLatLng();}catch(e){return;}
+    if(!map.getBounds().contains(latlng)){pc.el.style.display='none';return;}
+    pc.el.style.display='';
+    var pt=map.latLngToContainerPoint(latlng);
+    var card=pc.el;
+    var ex=pc.x+3, ey=pc.y+card.offsetHeight/2;
+    var color=colors[pc.type]||'#3388ff';
+    var line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',pt.x);line.setAttribute('y1',pt.y);
+    line.setAttribute('x2',ex);line.setAttribute('y2',ey);
+    line.setAttribute('stroke',color);line.setAttribute('stroke-width','1.4');
+    line.setAttribute('stroke-dasharray','none');
+    line.setAttribute('opacity','0.8');
+    svg.appendChild(line);
+  });
+}
+
+map.on('move zoom zoomend moveend resize',redrawPinLines);
 
 function buildMarkers(){
   Object.keys(cjMarkers).forEach(function(k){map.removeLayer(cjMarkers[k]);});cjMarkers={};
@@ -280,19 +399,12 @@ function buildMarkers(){
     m.addTo(map);watchMarkers.push(m);
   });
 
-  // Re-apply pinned tooltips after rebuild
-  pinnedTooltips.forEach(function(key){
-    var parts=key.split(':');var type=parts[0];var id=parts.slice(1).join(':');
-    var marker=null;
-    if(type==='cj')marker=cjMarkers[id];
-    else if(type==='comp')marker=compMarkers[parseInt(id)];
-    else if(type==='avail')marker=availMarkers[parseInt(id)];
-    else if(type==='watch')marker=watchMarkers[parseInt(id)];
-    if(marker&&marker._tooltipText){
-      marker.unbindTooltip();
-      marker.bindTooltip(marker._tooltipText,{className:(marker._tipClass||'')+' tip-pinned',direction:'top',offset:marker._tipOffset||[0,-8],permanent:true});
-    }
+  // Re-bind pin cards to new marker references after rebuild
+  Object.keys(pinnedCards).forEach(function(key){
+    var m=_getMarkerByKey(key);
+    if(m){pinnedCards[key].marker=m;}
   });
+  redrawPinLines();
 }
 
 function norm(s){return s.replace(/（/g,'(').replace(/）/g,')').replace(/\s+/g,'').trim();}
@@ -381,8 +493,8 @@ function buildRightPanel(){
   html+='<div class="rp-section"><div class="rp-sec-title" onclick="toggleSec(this)"><span class="arrow open">▶</span><span style="color:#e53935">★</span> 嘉吉工厂 <span class="count">('+cjList.length+')</span></div><div class="rp-list open">';
   cjList.forEach(function(f){
     var distStr=refF?'<span style="color:#ff8a65;font-weight:600;margin-left:6px;">'+haversine(refF.lat,refF.lng,f.lat,f.lng).toFixed(1)+'km</span>':'';
-    var pinCls=pinnedTooltips.has('cj:'+f.name)?'pin-btn pinned':'pin-btn';
-    var pinIco=pinnedTooltips.has('cj:'+f.name)?'📍':'📌';
+    var pinCls=pinnedCards.hasOwnProperty('cj:'+f.name)?'pin-btn pinned':'pin-btn';
+    var pinIco=pinnedCards.hasOwnProperty('cj:'+f.name)?'📍':'📌';
     html+='<div class="rp-item" data-type="cj" data-name="'+f.name.replace(/"/g,'&quot;')+'"><span class="'+pinCls+'" data-pinkey="cj:'+f.name.replace(/"/g,'&quot;')+'">'+pinIco+'</span><b>'+f.name+'</b>'+distStr+'<div class="remark">'+f.remark+'</div></div>';
   });
   html+='</div></div>';
@@ -392,8 +504,8 @@ function buildRightPanel(){
   compList.forEach(function(c){
     var idx=competitors.indexOf(c);
     var distStr=refF?'<span style="color:#ff8a65;font-weight:600;margin-left:6px;">'+haversine(refF.lat,refF.lng,c.lat,c.lng).toFixed(1)+'km</span>':'';
-    var pinCls=pinnedTooltips.has('comp:'+idx)?'pin-btn pinned':'pin-btn';
-    var pinIco=pinnedTooltips.has('comp:'+idx)?'📍':'📌';
+    var pinCls=pinnedCards.hasOwnProperty('comp:'+idx)?'pin-btn pinned':'pin-btn';
+    var pinIco=pinnedCards.hasOwnProperty('comp:'+idx)?'📍':'📌';
     html+='<div class="rp-item" data-type="comp" data-idx="'+idx+'"><span class="'+pinCls+'" data-pinkey="comp:'+idx+'">'+pinIco+'</span><b>'+c.name+'</b>'+distStr+'<div class="remark">'+c.remark+'</div></div>';
   });
   html+='</div></div>';
@@ -403,8 +515,8 @@ function buildRightPanel(){
   availList.forEach(function(a){
     var idx=availableData.indexOf(a);
     var distStr=refF?'<span style="color:#ff8a65;font-weight:600;margin-left:6px;">'+haversine(refF.lat,refF.lng,a.lat,a.lng).toFixed(1)+'km</span>':'';
-    var pinCls=pinnedTooltips.has('avail:'+idx)?'pin-btn pinned':'pin-btn';
-    var pinIco=pinnedTooltips.has('avail:'+idx)?'📍':'📌';
+    var pinCls=pinnedCards.hasOwnProperty('avail:'+idx)?'pin-btn pinned':'pin-btn';
+    var pinIco=pinnedCards.hasOwnProperty('avail:'+idx)?'📍':'📌';
     html+='<div class="rp-item" data-type="avail" data-idx="'+idx+'"><span class="'+pinCls+'" data-pinkey="avail:'+idx+'">'+pinIco+'</span><b>'+a.name+'</b>'+distStr+'<div class="remark">'+a.remark+' | '+a.material+'</div></div>';
   });
   html+='</div></div>';
@@ -414,8 +526,8 @@ function buildRightPanel(){
   watchList.forEach(function(w){
     var idx=watchingData.indexOf(w);
     var distStr=refF?'<span style="color:#ff8a65;font-weight:600;margin-left:6px;">'+haversine(refF.lat,refF.lng,w.lat,w.lng).toFixed(1)+'km</span>':'';
-    var pinCls=pinnedTooltips.has('watch:'+idx)?'pin-btn pinned':'pin-btn';
-    var pinIco=pinnedTooltips.has('watch:'+idx)?'📍':'📌';
+    var pinCls=pinnedCards.hasOwnProperty('watch:'+idx)?'pin-btn pinned':'pin-btn';
+    var pinIco=pinnedCards.hasOwnProperty('watch:'+idx)?'📍':'📌';
     html+='<div class="rp-item" data-type="watch" data-idx="'+idx+'"><span class="'+pinCls+'" data-pinkey="watch:'+idx+'">'+pinIco+'</span><b>'+w.name+'</b>'+distStr+'<div class="remark">'+w.remark+' | '+w.material+'</div></div>';
   });
   html+='</div></div>';
@@ -766,7 +878,7 @@ document.getElementById('importFileInput').addEventListener('change',function(e)
       if(na.length>0){availableData=na;}
       var nw=parseSheet('关注',{factory:'原料名称',material:'原料名称',name:'工厂名称',remark:'备注',coord:'坐标'});
       if(nw.length>0){watchingData=nw;}
-      pinnedTooltips.clear();filterCJ=null;document.getElementById('cjSearch').value='';
+      clearAllPinCards();filterCJ=null;document.getElementById('cjSearch').value='';
       buildMarkers();updateAll();fitAll();
       showToast('导入成功！嘉吉'+cjFactories.length+' | 竞争'+competitors.length+' | 可用'+availableData.length+' | 关注'+watchingData.length);
     }catch(err){console.error(err);showToast('导入失败：'+err.message,true);}
@@ -784,12 +896,10 @@ function showToast(msg,isErr){
 // INIT
 buildMarkers();updateAll();fitAll();
 
-// TOOLTIP TOGGLE
-document.getElementById('btnTooltip').addEventListener('click',function(){
-  tooltipPermanent=!tooltipPermanent;
-  this.style.opacity=tooltipPermanent?'0.5':'1';
-  this.title='悬停提示: '+(tooltipPermanent?'关':'开');
-  buildMarkers();
+// CLEAR ALL PINNED CARDS
+document.getElementById('btnClearPins').addEventListener('click',function(){
+  clearAllPinCards();
+  showToast('已清除全部固定卡片');
 });
 
 </script>
